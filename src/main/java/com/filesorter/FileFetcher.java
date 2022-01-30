@@ -17,27 +17,21 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class FileFetcher {
 
+    public static Map<Class<?>, Integer> TAGS =
+            Map.of(ExifSubIFDDirectory.class, ExifSubIFDDirectory.TAG_DATETIME_ORIGINAL,
+                    QuickTimeMetadataDirectory.class, QuickTimeMetadataDirectory.TAG_CREATION_DATE);
 
-    public void fetchFiles() throws IOException {
-
-        String root = "/Users/Rares_Antofie/Documents/exported";
-        var imageList =
-                getFilesRecursively(root)
+    public List<Image> fetchFiles(String root) throws IOException {
+        return getFilesRecursively(root)
                         .stream()
                         .map(this::imageBuilder)
                         .collect(Collectors.toList());
-
-        process(imageList);
     }
 
     public List<File> getFilesRecursively(String rootPath) {
@@ -56,20 +50,20 @@ public class FileFetcher {
     }
 
     public LocalDate getDate(File file) {
-        Metadata metadata = null;
+        Metadata metadata;
         try {
             metadata = ImageMetadataReader.readMetadata(file);
         } catch (ImageProcessingException | IOException e) {
             e.printStackTrace();
-        }
-        if (metadata == null) {
             return null;
         }
+
         try {
+            Class<? extends Directory> directoryClz = getDirectoryStrategy(file.getPath());
             Directory directory
-                    = metadata.getFirstDirectoryOfType(getDirectoryStrategy(file.getPath()));
+                    = metadata.getFirstDirectoryOfType(directoryClz);
             return directory
-                    .getDate(getTagType(getDirectoryStrategy(file.getPath())))
+                    .getDate(TAGS.get(directoryClz))
                     .toInstant()
                     .atZone(ZoneId.systemDefault())
                     .toLocalDate();
@@ -79,7 +73,7 @@ public class FileFetcher {
     }
 
     public Class<? extends Directory> getDirectoryStrategy(String path) {
-        Class<? extends Directory> directory = null;
+        Class<? extends Directory> directory;
         if (path.contains(".mov")) {
             directory = QuickTimeMetadataDirectory.class;
         } else {
@@ -88,53 +82,6 @@ public class FileFetcher {
         return directory;
     }
 
-    public int getTagType(Class<? extends Directory> clz) {
-        if (clz.equals(ExifSubIFDDirectory.class)) {
-            return ExifSubIFDDirectory.TAG_DATETIME_ORIGINAL;
-        } else if (clz.equals(QuickTimeMetadataDirectory.class)) {
-            return QuickTimeMetadataDirectory.TAG_CREATION_DATE;
-        }
-        return 0;
-    }
 
-    public void process(List<Image> imageList) {
-        FolderFactory folderFactory = new FolderFactory(imageList);
-        folderFactory.createFolderHierarchy();
-        ExecutorService executorService = Executors.newFixedThreadPool(10);
-        List<Runnable> runnables = new ArrayList<>();
-        AtomicInteger movedImages = new AtomicInteger();
-        imageList.forEach(image -> runnables.add(() -> {
-            File source = new File(image.getPath());
-            if (image.getDate() == null) {
-                File dest = new File(String.format("%s/%s/%s",FolderFactory.OUTPUT_LOCATION, "unsorted", image.getName()));
-                try {
-                    Files.copy(Path.of(source.getPath()), Path.of(dest.getPath()), StandardCopyOption.REPLACE_EXISTING);
-                    movedImages.getAndIncrement();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            } else {
-                File dest = new File(String.format("%s/%s/%s/%s",FolderFactory.OUTPUT_LOCATION, image.getDate().getYear(), image.getDate().getMonth().toString(), image.getName()));
-                try {
-                    Files.copy(Path.of(source.getPath()), Path.of(dest.getPath()), StandardCopyOption.REPLACE_EXISTING);
-                    movedImages.getAndIncrement();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        }));
-        runnables.forEach(executorService::submit);
-
-        Runnable logProgress = () -> System.out.printf("Moved %d out of %d images%n", movedImages.get(), imageList.size());
-        ScheduledExecutorService executor = Executors.newScheduledThreadPool(1);
-        executor.scheduleAtFixedRate(logProgress, 0, 5, TimeUnit.SECONDS);
-        executorService.shutdown();
-        boolean finished = executorService.isTerminated();
-        while (!finished) {
-            finished = executorService.isTerminated();
-        }
-        executor.shutdown();
-        System.out.println("Finished execution");
-    }
 
 }

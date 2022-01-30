@@ -3,26 +3,25 @@ package com.filesorter;
 import java.io.File;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.stream.Stream;
 
 public class FolderFactory {
 
     public static final String OUTPUT_LOCATION = "/Users/Rares_Antofie/sorted";
-    private final List<Image> imageList;
+    private final Stream<LocalDate> imageDates;
 
-    public FolderFactory(List<Image> imageList) {
-        this.imageList = imageList;
+    static {
+        new File(String.format("%s/%s", OUTPUT_LOCATION, "unsorted")).mkdir();
+    }
+
+    public FolderFactory(Stream<LocalDate> imageDates) {
+        this.imageDates = imageDates;
     }
 
     public void createFolderHierarchy() {
-        imageList.forEach(image -> {
-            LocalDate localDate = image.getDate();
-            if (localDate == null) {
-                new File(String.format("%s/%s", OUTPUT_LOCATION, "unsorted")).mkdir();
-                System.out.println(String.format("Transfering file from path %s to unsorted", image.getName()));
-            } else {
-                String yearPath = createFolder(OUTPUT_LOCATION, String.valueOf(image.getDate().getYear()));
-                createFolder(yearPath, image.getDate().getMonth().toString());
-            }
+        imageDates.forEach(imageDate -> {
+            String yearPath = createFolder(OUTPUT_LOCATION, String.valueOf(imageDate.getYear()));
+            createFolder(yearPath, imageDate.getMonth().toString());
         });
     }
 
